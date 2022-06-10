@@ -1,6 +1,7 @@
-import React, { useState, useContext, useRef, PropsWithChildren } from 'react';
-import useIsomorphicLayoutEffect from '../_util/hooks/useIsomorphicLayoutEffect';
+import React, { useState, useContext, PropsWithChildren } from 'react';
+import throttle from 'lodash/throttle';
 import { ConfigContext } from '../ConfigProvider';
+import ResizeObserverComponent from '../_util/resizeObserver';
 import {
   TypographyParagraphProps,
   TypographyTitleProps,
@@ -10,16 +11,13 @@ import {
 import Operations from './operations';
 import cs from '../_util/classNames';
 import EditContent from './edit-content';
-import { isObject } from '../_util/is';
-import useResizeObserver from '../_util/hooks/useResizeObserver';
-import { measure } from './utils';
+import { isObject, isUndefined } from '../_util/is';
 import Tooltip from '../Tooltip';
 import Popover from '../Popover';
-import { raf, caf } from '../_util/raf';
 import omit from '../_util/omit';
-import useUpdateEffect from '../_util/hooks/useUpdate';
 import mergedToString from '../_util/mergedToString';
 import useMergeValue from '../_util/hooks/useMergeValue';
+import useEllipsis from './useEllipsis';
 
 type BaseProps = PropsWithChildren<
   TypographyParagraphProps & TypographyTitleProps & TypographyTextProps
@@ -79,27 +77,24 @@ function Base(props: BaseProps) {
   const { getPrefixCls } = configContext;
   const prefixCls = getPrefixCls('typography');
 
-  const rafId = useRef();
-
   const { component, className: componentClassName } = getClassNameAndComponentName(
     props,
     prefixCls
   );
 
   const [editing, setEditing] = useState<boolean>(false);
-  const [isEllipsis, setEllipsis] = useState<boolean>(false);
-  const [ellipsisText, setEllipsisText] = useState<string>('');
-  const [measuring, setMeasuring] = useState(false);
-
-  const componentRef = useRef(null);
-  const textWrapperRef = useRef(null);
-
+  const [width, setWidth] = useState(0);
   const editableConfig = isObject(editable) ? editable : {};
   const mergedEditing = 'editing' in editableConfig ? editableConfig.editing : editing;
 
   const ellipsisConfig: EllipsisConfig = ellipsis
     ? { rows: 1, ellipsisStr: '...', cssEllipsis: true, ...(isObject(ellipsis) ? ellipsis : {}) }
     : {};
+
+  const [expanding, setExpanding] = useMergeValue<boolean>(false, {
+    defaultValue: ellipsisConfig.defaultExpanded,
+    value: ellipsisConfig.expanded,
+  });
 
   function canSimpleEllipsis() {
     const { rows, ellipsisStr, suffix, onEllipsis, expandable, cssEllipsis } = ellipsisConfig;
@@ -112,12 +107,40 @@ function Base(props: BaseProps) {
     return rows === 1;
   }
   const simpleEllipsis = canSimpleEllipsis();
-  const [expanding, setExpanding] = useMergeValue<boolean>(false, {
-    defaultValue: ellipsisConfig.defaultExpanded,
-    value: ellipsisConfig.expanded,
+
+  const renderMeasureContent = (node, isEllipsis) => {
+    const ellipsisStr = !isUndefined(ellipsisConfig.ellipsisStr)
+      ? ellipsisConfig.ellipsisStr
+      : '...';
+    const suffix = !isUndefined(ellipsisConfig.suffix) && ellipsisConfig.suffix;
+    return (
+      <>
+        {node}
+        {isEllipsis && !expanding && !simpleEllipsis ? ellipsisStr : ''}
+        {suffix}
+        {renderOperations(isEllipsis)}
+      </>
+    );
+  };
+
+  const { ellipsisNode, isEllipsis } = useEllipsis({
+    ...ellipsisConfig,
+    children,
+    expanding,
+    width,
+    renderMeasureContent,
+    simpleEllipsis: simpleEllipsis || expanding,
   });
 
-  function renderOperations(forceShowExpand?: boolean) {
+  const handleResize = throttle((entry) => {
+    const { contentRect } = entry?.[0];
+
+    if (contentRect) {
+      setWidth(contentRect.width);
+    }
+  }, 200);
+
+  function renderOperations(isEllipsis?: boolean) {
     return (
       <>
         <Operations
@@ -126,7 +149,6 @@ function Base(props: BaseProps) {
           onClickExpand={onClickExpand}
           expanding={expanding}
           isEllipsis={isEllipsis}
-          forceShowExpand={forceShowExpand}
           // 如果是镜像dom的话，渲染在最外层，无法从context中拿到最新config
           currentContext={configContext}
         />
@@ -140,85 +162,20 @@ function Base(props: BaseProps) {
     ellipsisConfig.onExpand && ellipsisConfig.onExpand(!expanding, e);
   }
 
-  const resizeOnNextFrame = () => {
-    caf(rafId.current);
-    rafId.current = raf(() => {
-      calcEllipsis();
-    });
-  };
-
-  const { cor, dor } = useResizeObserver(resizeOnNextFrame);
-
-  useUpdateEffect(() => {
-    ellipsisConfig.onEllipsis && ellipsisConfig.onEllipsis(isEllipsis);
-  }, [isEllipsis]);
-
-  useIsomorphicLayoutEffect(() => {
-    if (componentRef.current) {
-      cor(componentRef.current);
-    }
-    return () => {
-      dor();
-      caf(rafId.current);
-    };
-  }, [
-    children,
-    expanding,
-    editing,
-    ellipsisConfig.suffix,
-    ellipsisConfig.ellipsisStr,
-    ellipsisConfig.expandable,
-    ellipsisConfig.expandNodes,
-    ellipsisConfig.rows,
-    ellipsisConfig.cssEllipsis,
-  ]);
-
-  function calcEllipsis() {
-    if (editing) {
-      return;
-    }
-    if (ellipsisConfig.rows) {
-      setMeasuring(true);
-      const { ellipsis, text } = measure(
-        textWrapperRef.current || componentRef.current,
-        ellipsisConfig,
-        renderOperations(!!ellipsisConfig.expandable),
-        children,
-        // expanding 情况下只需要判断原空间是否足够，不用计算折叠临界值，
-        simpleEllipsis || expanding
-      );
-      setMeasuring(false);
-      if (ellipsis && text) {
-        setEllipsisText(text);
-      }
-      setEllipsis(ellipsis);
-    } else {
-      const isEllipsis = !!ellipsisConfig.rows;
-      setEllipsis(isEllipsis);
-    }
-  }
-
   function wrap(content, component, props) {
     let currentContent = content;
-    // 折叠计算前把行内元素改为块级元素。
-    const ellipsisStyle = ellipsisConfig.rows && !simpleEllipsis ? { display: 'block' } : {};
-    component.forEach((c, index) => {
+    component.forEach((c) => {
       const _props =
         isObject(props.mark) && props.mark.color
-          ? { style: { backgroundColor: props.mark.color, ...ellipsisStyle } }
-          : { style: ellipsisStyle };
-      // The parent node of the text will affect the style of the mirror dom
-      const _ref = index === 0 ? { ref: textWrapperRef } : {};
-      currentContent = React.createElement(c, { ..._props, ..._ref }, currentContent);
+          ? { style: { backgroundColor: props.mark.color } }
+          : {};
+      currentContent = React.createElement(c, { ..._props }, currentContent);
     });
     return currentContent;
   }
 
   function renderContent() {
     const fullText = mergedToString(React.Children.toArray(children));
-    const ellipsisStr =
-      ellipsisConfig.ellipsisStr !== undefined ? ellipsisConfig.ellipsisStr : '...';
-    const suffix = ellipsisConfig.suffix !== undefined && ellipsisConfig.suffix;
     const showTooltip = ellipsisConfig.showTooltip;
     const tooltipType = isObject(ellipsisConfig.showTooltip)
       ? ellipsisConfig.showTooltip.type === 'popover'
@@ -233,39 +190,11 @@ function Base(props: BaseProps) {
     const titleProps = isEllipsis && !showTooltip && !expanding ? { title: fullText } : {};
 
     const baseProps = {
-      ref: componentRef,
       style,
       ...titleProps,
     };
 
     const addTooltip = isEllipsis && showTooltip && !expanding;
-
-    function renderInnerContent() {
-      const text = isEllipsis && !expanding ? ellipsisText : children;
-      const innerText = component.length ? wrap(text, component, props) : text;
-
-      if (ellipsisConfig.rows && !simpleEllipsis && component.length) {
-        const node = (
-          <>
-            {addTooltip ? <span>{text}</span> : text}
-            {measuring || (isEllipsis && !expanding && !simpleEllipsis) ? ellipsisStr : null}
-            {suffix}
-            {renderOperations(measuring ? !!ellipsisConfig.expandable : undefined)}
-          </>
-        );
-        return wrap(node, component, props);
-      }
-
-      return (
-        <>
-          {addTooltip ? <span>{innerText}</span> : innerText}
-          {measuring || (isEllipsis && !expanding && !simpleEllipsis) ? ellipsisStr : null}
-          {suffix}
-          {renderOperations(measuring ? !!ellipsisConfig.expandable : undefined)}
-        </>
-      );
-    }
-
     let TextComponent;
     if (componentType === 'Paragraph') {
       TextComponent = blockquote ? 'blockquote' : 'div';
@@ -276,40 +205,42 @@ function Base(props: BaseProps) {
     }
 
     const node = (
-      <TextComponent
-        className={cs(
-          prefixCls,
-          { [`${prefixCls}-simple-ellipsis`]: simpleEllipsis && !expanding },
-          componentClassName,
-          className
-        )}
-        {...baseProps}
-        {...omit(rest, [
-          'spacing',
-          'type',
-          'close',
-          'bold',
-          'disabled',
-          'mark',
-          'underline',
-          'delete',
-          'code',
-          'copyable',
-          'isEllipsis',
-          'expanding',
-          'onClickExpand',
-          'setEditing',
-          'forceShowExpand',
-        ])}
-      >
-        {renderInnerContent()}
-      </TextComponent>
+      <ResizeObserverComponent onResize={handleResize}>
+        <TextComponent
+          className={cs(
+            prefixCls,
+            { [`${prefixCls}-simple-ellipsis`]: simpleEllipsis && !expanding },
+            componentClassName,
+            className
+          )}
+          {...baseProps}
+          {...omit(rest, [
+            'spacing',
+            'type',
+            'close',
+            'bold',
+            'disabled',
+            'mark',
+            'underline',
+            'delete',
+            'code',
+            'copyable',
+            'isEllipsis',
+            'expanding',
+            'onClickExpand',
+            'setEditing',
+            'forceShowExpand',
+          ])}
+        >
+          {wrap(ellipsisNode, component, props)}
+        </TextComponent>
+      </ResizeObserverComponent>
     );
 
     if (addTooltip) {
       return (
         <TooltipComponent content={fullText} {...tooltipProps}>
-          {node}
+          <span>{node}</span>
         </TooltipComponent>
       );
     }

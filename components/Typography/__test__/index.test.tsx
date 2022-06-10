@@ -23,7 +23,7 @@ jest.mock('resize-observer-polyfill', () => ({
   default: jest.fn().mockImplementation((cb) => {
     try {
       // in jest, dom has no size, so cb will not trigger on observer is created, just mock;
-      typeof cb === 'function' && cb();
+      typeof cb === 'function' && cb([{ contentRect: { width: 100 } }]);
     } catch (e) {}
 
     return {
@@ -36,32 +36,31 @@ jest.mock('resize-observer-polyfill', () => ({
 
 // 1行20个字符。
 const LINE_STR_COUNT = 20;
+const MEASURE_LINE_HEIGHT_TEXT = 'hxj';
 
-const _getComputedStyle = window.getComputedStyle;
-const _getHtmlScrollHeight = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight').get;
+const _getHTMLOffsetHeight = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetHeight'
+).get;
 describe('Typography', () => {
   beforeAll(() => {
-    Object.defineProperty(Element.prototype, 'scrollHeight', {
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
       get() {
         const html = this.innerHTML;
+        if (html === MEASURE_LINE_HEIGHT_TEXT) {
+          return 16;
+        }
         const text = html.replace(/<[^>]*>/g, '');
         const lines = Math.ceil(text.length / LINE_STR_COUNT);
         return lines * 16;
       },
     });
-
-    window.getComputedStyle = (ele) => {
-      const style = _getComputedStyle(ele);
-      style.lineHeight = '16px';
-      return style;
-    };
   });
 
   afterAll(() => {
-    Object.defineProperty(Element.prototype, 'scrollHeight', {
-      get: _getHtmlScrollHeight,
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      get: _getHTMLOffsetHeight,
     });
-    window.getComputedStyle = _getComputedStyle;
   });
 
   it('basic bold', () => {
