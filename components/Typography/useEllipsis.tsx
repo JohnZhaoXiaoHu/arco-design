@@ -1,5 +1,6 @@
 import React, { useMemo, useLayoutEffect, useRef, useState, CSSProperties } from 'react';
 import useUpdate from '../_util/hooks/useUpdate';
+import throttleByRaf from '../_util/throttleByRaf';
 import { isNumber, isString } from '../_util/is';
 import { EllipsisConfig } from './interface';
 
@@ -35,8 +36,8 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
     expandable,
     ellipsisStr,
   } = props;
-  const singleRowNode = useRef<HTMLSpanElement>();
-  const mirrorNode = useRef<HTMLSpanElement>();
+  const singleRowNode = useRef<HTMLDivElement>();
+  const mirrorNode = useRef<HTMLDivElement>();
   const [binarySearchIndex, setBinarySearchIndex] = useState([0, 0, 0]);
   const [lineHeight, setLineHeight] = useState(0);
   const [status, setStatus] = useState(MEASURE_STATUS.NO_NEED_ELLIPSIS);
@@ -66,6 +67,8 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
   };
 
   const totalLen = useMemo(() => getTotalLen(nodeList), [nodeList]);
+
+  const updateSearchIndex = throttleByRaf((searchIndex) => setBinarySearchIndex(searchIndex));
 
   const getSlicedNode = (sliceLen: number) => {
     const slicedNode: React.ReactNode[] = [];
@@ -132,14 +135,15 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
             nextEndLoc = midLoc;
           }
           const nextMidLoc = Math.floor((nextEndLoc + nextStartLoc) / 2);
-          setBinarySearchIndex([nextStartLoc, nextMidLoc, nextEndLoc]);
+          updateSearchIndex([nextStartLoc, nextMidLoc, nextEndLoc]);
         } else {
-          setBinarySearchIndex([startLoc, startLoc, startLoc]);
+          updateSearchIndex([startLoc, startLoc, startLoc]);
           setStatus(MEASURE_STATUS.MEASURE_END);
         }
       }
     }
   };
+
   useLayoutEffect(() => {
     if (props.rows && width) {
       setBinarySearchIndex([0, Math.floor(totalLen / 2), totalLen]);
@@ -168,16 +172,19 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
 
   useLayoutEffect(() => {
     measure();
-  }, [status, midLoc, lineHeight]);
+  }, [status, midLoc, startLoc, endLoc, lineHeight]);
 
-  const singleRowNodeStyle: CSSProperties = {
-    display: 'block',
+  const basicStyle: CSSProperties = {
+    zIndex: -999,
+    position: 'fixed',
+    opacity: 0,
     padding: 0,
     margin: 0,
-    position: 'absolute',
+  };
+
+  const singleRowNodeStyle: CSSProperties = {
     whiteSpace: 'nowrap',
-    opacity: 0,
-    zIndex: -999,
+    ...basicStyle,
   };
 
   // 用css省略的话，需要覆盖单行省略样式
@@ -185,30 +192,34 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
     ? {
         textOverflow: 'clip',
         whiteSpace: 'normal',
+        ...basicStyle,
       }
-    : {};
+    : basicStyle;
 
   let ellipsisNode;
-
   if (status === MEASURE_STATUS.INIT || status === MEASURE_STATUS.BEFORE_MEASURE) {
     ellipsisNode = (
       <>
-        <span ref={singleRowNode} style={singleRowNodeStyle}>
+        <div ref={singleRowNode} style={singleRowNodeStyle}>
           {status === MEASURE_STATUS.INIT
             ? MEASURE_LINE_HEIGHT_TEXT
             : renderMeasureContent(children, false)}
-        </span>
-
-        <span ref={mirrorNode} style={{ width, ...mirrorNodeStyle }}>
+        </div>
+        <div ref={mirrorNode} style={{ width, ...mirrorNodeStyle }}>
           {renderMeasureContent(children, isEllipsis)}
-        </span>
+        </div>
       </>
     );
   } else if (status === MEASURE_STATUS.MEASURING) {
     ellipsisNode = (
-      <span ref={mirrorNode} style={{ width, ...mirrorNodeStyle }}>
-        {renderMeasureContent(getSlicedNode(midLoc), isEllipsis)}
-      </span>
+      <>
+        <div ref={mirrorNode} style={{ width, ...mirrorNodeStyle }}>
+          {renderMeasureContent(getSlicedNode(midLoc), isEllipsis)}
+        </div>
+        <div style={{ overflow: 'hidden', width, height: rows * lineHeight }}>
+          {renderMeasureContent(children, false)}
+        </div>
+      </>
     );
   } else if (status === MEASURE_STATUS.MEASURE_END) {
     ellipsisNode = renderMeasureContent(getSlicedNode(midLoc), isEllipsis);

@@ -13,6 +13,8 @@ const columns = [
         <Typography.Paragraph
           ellipsis={{
             rows: 2,
+            expandable: true,
+            ellipsisStr: '---',
           }}
         >
           {mockText}
@@ -28,6 +30,8 @@ const columns = [
         <Typography.Paragraph
           ellipsis={{
             rows: 2,
+            expandable: true,
+            ellipsisStr: '---',
           }}
         >
           {mockText}
@@ -43,6 +47,8 @@ const columns = [
         <Typography.Paragraph
           ellipsis={{
             rows: 2,
+            expandable: true,
+            ellipsisStr: '---',
           }}
         >
           {mockText}
