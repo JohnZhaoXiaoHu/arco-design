@@ -17,7 +17,8 @@ import Popover from '../Popover';
 import omit from '../_util/omit';
 import mergedToString from '../_util/mergedToString';
 import useMergeValue from '../_util/hooks/useMergeValue';
-import useEllipsis from './useEllipsis';
+import useEllipsis, { MEASURE_STATUS } from './useEllipsis';
+import useCssEllipsis from './useCssEllipsis';
 
 type BaseProps = PropsWithChildren<
   TypographyParagraphProps & TypographyTitleProps & TypographyTextProps
@@ -70,7 +71,6 @@ function Base(props: BaseProps) {
     ellipsis,
     heading,
     blockquote,
-    copyable,
     ...rest
   } = props;
   const configContext = useContext(ConfigContext);
@@ -96,17 +96,7 @@ function Base(props: BaseProps) {
     value: ellipsisConfig.expanded,
   });
 
-  function canSimpleEllipsis() {
-    const { rows, ellipsisStr, suffix, onEllipsis, expandable, cssEllipsis } = ellipsisConfig;
-    if (!cssEllipsis) {
-      return;
-    }
-    if (suffix || ellipsisStr !== '...') return;
-    if (onEllipsis || expandable || onEllipsis) return;
-    if (editable || copyable) return;
-    return rows === 1;
-  }
-  const simpleEllipsis = canSimpleEllipsis();
+  const { simpleEllipsis, ellipsisStyle } = useCssEllipsis(ellipsisConfig);
 
   const renderMeasureContent = (node, isEllipsis) => {
     const ellipsisStr = !isUndefined(ellipsisConfig.ellipsisStr)
@@ -123,7 +113,7 @@ function Base(props: BaseProps) {
     );
   };
 
-  const { ellipsisNode, isEllipsis } = useEllipsis({
+  const { ellipsisNode, isEllipsis, measureStatus } = useEllipsis({
     ...ellipsisConfig,
     children,
     expanding,
@@ -162,13 +152,14 @@ function Base(props: BaseProps) {
     ellipsisConfig.onExpand && ellipsisConfig.onExpand(!expanding, e);
   }
 
-  function wrap(content, component, props) {
+  function wrap(content, component, props, innerProps = {}) {
     let currentContent = content;
-    component.forEach((c) => {
+    component.forEach((c, _index) => {
+      const _innerProps = _index === 0 ? innerProps : {};
       const _props =
         isObject(props.mark) && props.mark.color
-          ? { style: { backgroundColor: props.mark.color } }
-          : {};
+          ? { style: { backgroundColor: props.mark.color }, ..._innerProps }
+          : { ..._innerProps };
       currentContent = React.createElement(c, { ..._props }, currentContent);
     });
     return currentContent;
@@ -207,12 +198,7 @@ function Base(props: BaseProps) {
     const node = (
       <ResizeObserverComponent onResize={handleResize}>
         <TextComponent
-          className={cs(
-            prefixCls,
-            { [`${prefixCls}-simple-ellipsis`]: simpleEllipsis && !expanding },
-            componentClassName,
-            className
-          )}
+          className={cs(prefixCls, componentClassName, className)}
           {...baseProps}
           {...omit(rest, [
             'spacing',
@@ -232,7 +218,15 @@ function Base(props: BaseProps) {
             'forceShowExpand',
           ])}
         >
-          {wrap(ellipsisNode, component, props)}
+          {/* MEASURE_STATUS.INIT 阶段是判断当前是否空间足够 */}
+          {simpleEllipsis && measureStatus !== MEASURE_STATUS.INIT && !expanding
+            ? wrap(
+                renderMeasureContent(<span style={ellipsisStyle}>{children}</span>, isEllipsis),
+                component.length ? component : ['span'],
+                props,
+                { className: `${prefixCls}-simple-ellipsis` }
+              )
+            : wrap(ellipsisNode, component, props)}
         </TextComponent>
       </ResizeObserverComponent>
     );
@@ -240,7 +234,7 @@ function Base(props: BaseProps) {
     if (addTooltip) {
       return (
         <TooltipComponent content={fullText} {...tooltipProps}>
-          <span>{node}</span>
+          <span style={{ display: 'inline-block' }}>{node}</span>
         </TooltipComponent>
       );
     }

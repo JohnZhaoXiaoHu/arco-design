@@ -14,7 +14,6 @@ const columns = [
           ellipsis={{
             rows: 2,
             expandable: true,
-            ellipsisStr: '---',
           }}
         >
           {mockText}
@@ -31,7 +30,6 @@ const columns = [
           ellipsis={{
             rows: 2,
             expandable: true,
-            ellipsisStr: '---',
           }}
         >
           {mockText}
@@ -45,10 +43,10 @@ const columns = [
     render() {
       return (
         <Typography.Paragraph
+          code
           ellipsis={{
-            rows: 2,
+            rows: 3,
             expandable: true,
-            ellipsisStr: '---',
           }}
         >
           {mockText}
@@ -69,7 +67,6 @@ function DemoExpand() {
   return (
     <Table
       columns={columns}
-      tableLayoutFixed
       pagination={false}
       data={new Array(50).fill('').map((_, index) => ({
         key: index,

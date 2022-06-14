@@ -14,7 +14,7 @@ interface IEllipsis extends EllipsisConfig {
 // line-height baseline
 const MEASURE_LINE_HEIGHT_TEXT = 'hxj';
 
-enum MEASURE_STATUS {
+export enum MEASURE_STATUS {
   INIT = 0,
   BEFORE_MEASURE = 1,
   MEASURING = 2,
@@ -44,7 +44,9 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
   const [startLoc, midLoc, endLoc] = binarySearchIndex;
   const [isEllipsis, setIsEllipsis] = useState(false);
 
-  const nodeList = useMemo(() => React.Children.toArray(children), [children]);
+  const nodeList = useMemo(() => {
+    return React.Children.toArray(children);
+  }, [children]);
 
   useUpdate(() => {
     onEllipsis && onEllipsis(isEllipsis);
@@ -226,7 +228,7 @@ function useEllipsis(props: React.PropsWithChildren<IEllipsis>) {
   } else if (status === MEASURE_STATUS.NO_NEED_ELLIPSIS) {
     ellipsisNode = renderMeasureContent(children, false);
   }
-  return { ellipsisNode, isEllipsis };
+  return { ellipsisNode, isEllipsis, measureStatus: status };
 }
 
 export default useEllipsis;
